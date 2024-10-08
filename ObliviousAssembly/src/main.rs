@@ -136,10 +136,10 @@ fn OA(){
 
     change_head_position_OA(&mut tape, 0, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
 
-    // if DEBUG {
-    //     print!("New Tape : ");
-    //     tape.print(&private_key, &ctx);
-    // }
+    if DEBUG {
+        print!("New Tape : ");
+        tape.print(&private_key, &ctx);
+    }
     let elapsed_time_step = start_time_step.elapsed();
     println!("temps etape0 :{}",elapsed_time_step.as_millis());
 
@@ -151,80 +151,98 @@ fn OA(){
 
     let elapsed_time_step = start_time_step.elapsed();
     println!("temps etape1 :{}",elapsed_time_step.as_millis());
-    // if DEBUG {
-    //     private_key.debug_lwe("Cell content", &cell_content, &ctx); //column
-    //
-    //     print!("New Tape : ");
-    //     tape.print(&private_key, &ctx);
-    //     private_key.debug_lwe("storage0", &storage0, &ctx);
-    // }
+    if DEBUG {
+        print!("New Tape : ");
+        tape.print(&private_key, &ctx);
+        private_key.debug_lwe("storage0", &storage0, &ctx);
+    }
 
     println!("étape 2 \n");
     let start_time_step = Instant::now();
 
     let mut storage1 = read_cell_content(&tape, &public_key, &ctx);
-    let (mut storage4, mut storage5) = store_read_cell_LUT_OA( &public_key, &ctx, &storage0, &storage1, &state, &ct_instruction_add,&ct_instruction_mul_unit,&ct_instruction_mul_ten);
-    let elapsed_time_step = start_time_step.elapsed();
-
+    change_head_position_OA(&mut tape, 2, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
     let elapsed_time_step = start_time_step.elapsed();
     println!("temps etape2 :{}",elapsed_time_step.as_millis());
 
-    change_head_position_OA(&mut tape, 2, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
-
-    // if DEBUG {
-    //     private_key.debug_lwe("Cell content", &cell_content, &ctx); //column
-    //
-    //     print!("New Tape : ");
-    //     tape.print(&private_key, &ctx);
-    //     private_key.debug_lwe("storage0", &storage0, &ctx);
-    // }
+    if DEBUG {
+        print!("New Tape : ");
+        tape.print(&private_key, &ctx);
+    }
 
     println!("étape 3 \n");
     let start_time_step = Instant::now();
 
     let mut storage2 = read_cell_content(&tape, &public_key, &ctx);
-    change_head_position_OA(&mut tape, 4, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
+    change_head_position_OA(&mut tape, 3, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
 
     let elapsed_time_step = start_time_step.elapsed();
-    println!("temps etape4 :{}",elapsed_time_step.as_millis());
+    println!("temps etape3 :{}",elapsed_time_step.as_millis());
+
+    if DEBUG {
+        print!("New Tape : ");
+        tape.print(&private_key, &ctx);
+    }
+
+
 
     println!("étape 4 \n");
     let start_time_step = Instant::now();
 
     let mut storage3 = read_cell_content(&tape, &public_key, &ctx);
-    change_head_position_OA(&mut tape, 5, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
+    let (mut storage4, mut storage5) = store_read_cell_LUT_OA(
+        &public_key,
+        &ctx,
+        &storage1,
+        &storage3,
+        &state,
+        &ct_instruction_add,
+        &ct_instruction_mul_unit,
+        &ct_instruction_mul_ten);
+
+    change_head_position_OA(&mut tape, 4, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
 
     let elapsed_time_step = start_time_step.elapsed();
     println!("temps etape4 :{}",elapsed_time_step.as_millis());
 
-    // if DEBUG {
-    //     private_key.debug_lwe("Cell content", &cell_content, &ctx); //column
-    //     print!("New Tape : ");
-    //     tape.print(&private_key, &ctx);
-    //     private_key.debug_lwe("storage0", &storage0, &ctx);
-    // }
+    if DEBUG {
+        print!("New Tape : ");
+        tape.print(&private_key, &ctx);
+        private_key.debug_lwe("storage0", &storage0, &ctx);
+        private_key.debug_lwe("storage4", &storage4, &ctx);
+        private_key.debug_lwe("storage5", &storage5, &ctx);
+    }
 
     println!("étape 5 \n");
     let start_time_step = Instant::now();
 
     let cell_content = read_cell_content(&tape, &public_key, &ctx);
-    write_new_cell_content_OA(&mut tape, &cell_content, &public_key, &ctx, &mut write1);
-    change_head_position_OA(&mut tape, 3, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
+    write_new_cell_content_OA(&mut tape, &cell_content, &public_key, &ctx, &mut storage5);
+    change_head_position_OA(&mut tape, 5, &ct_instruction_position, public_key, &private_key, &mut nb_of_move, &mut ctx);
 
     let elapsed_time_step = start_time_step.elapsed();
     println!("temps etape5 :{}",elapsed_time_step.as_millis());
 
-    // if DEBUG {
-    //     print!("New Tape : ");
-    //     tape.print(&private_key, &ctx);
-    //      private_key.debug_glwe("storage0", &storage0, &ctx);
-    // }
+    if DEBUG {
+        print!("New Tape : ");
+        tape.print(&private_key, &ctx);
+    }
 
     println!("étape 6 \n");
     let start_time_step = Instant::now();
 
     let cell_content = read_cell_content(&tape, &public_key, &ctx);
-    let mut storage4 = select_write( &public_key, &ctx, &mut storage0, &mut storage1, &mut storage2, &mut storage3, &mut storage4, &state,&ct_instruction_mul_unit);
+    let mut storage4 = select_write(
+        &public_key,
+        &ctx,
+        &mut storage0,
+        &mut storage1,
+        &mut storage2,
+        &mut storage3,
+        &mut storage4,
+        &state,
+        &ct_instruction_mul_unit,);
+
     write_new_cell_content_OA(&mut tape, &cell_content, &public_key, &ctx, &mut storage4);
 
     let elapsed_time_step = start_time_step.elapsed();
@@ -236,6 +254,7 @@ fn OA(){
     println!("Oblivious OA End... \nReordering the tape..");
     public_key.wrapping_neg_lwe(&mut nb_of_move);
     blind_rotate_assign(&nb_of_move, &mut tape.0, &public_key.fourier_bsk);
+    tape.print(&private_key,&ctx);
 
     if DEBUG {
         print!("New Tape : ");
@@ -248,11 +267,11 @@ fn OA(){
 pub fn select_write(
     public_key: &PublicKey,
     ctx: &Context,
-    mut storage0: &mut LweCiphertext<Vec<u64>>,
+    storage0: &mut LweCiphertext<Vec<u64>>,
     storage1: &mut LweCiphertext<Vec<u64>>,
-    mut storage2: &mut LweCiphertext<Vec<u64>>,
+    storage2: &mut LweCiphertext<Vec<u64>>,
     storage3: &mut LweCiphertext<Vec<u64>>,
-    mut storage4: &mut LweCiphertext<Vec<u64>>,
+    storage4: &mut LweCiphertext<Vec<u64>>,
     state:&LweCiphertext<Vec<u64>>,
     ct_instruction_mul_unit: &Vec<LUT>,
 
@@ -263,11 +282,13 @@ pub fn select_write(
     lwe_ciphertext_add(&mut storage4_add,&storage4, &storage0);
     lwe_ciphertext_add_assign(&mut storage4_add, &storage2);
 
+
     //mul
     let mut storage4_mul = public_key.blind_matrix_access(&ct_instruction_mul_unit,&storage0,&storage3,&ctx);
     lwe_ciphertext_add_assign(&mut storage4_mul,&storage4);
-    let storage4 = public_key.blind_matrix_access(&ct_instruction_mul_unit,&storage1,&storage1,&ctx);
+    let storage4 = public_key.blind_matrix_access(&ct_instruction_mul_unit,&storage1,&storage2,&ctx);
     lwe_ciphertext_add_assign(&mut storage4_mul,&storage4);
+
 
     //obliviousness
     let acc = vec![storage4_add,storage4_mul];
@@ -279,8 +300,8 @@ pub fn select_write(
 pub fn store_read_cell_LUT_OA(
     public_key: &PublicKey,
     ctx: &Context,
-    storage0: &LweCiphertext<Vec<u64>>,
     storage1: &LweCiphertext<Vec<u64>>,
+    storage3: &LweCiphertext<Vec<u64>>,
     state:&LweCiphertext<Vec<u64>>,
     ct_instruction_add: &Vec<LUT>,
     ct_instruction_mul_unit: &Vec<LUT>,
@@ -289,10 +310,10 @@ pub fn store_read_cell_LUT_OA(
 ) -> (LweCiphertext<Vec<u64>>,LweCiphertext<Vec<u64>>){
 
     let mut res_add1_ct = public_key.allocate_and_trivially_encrypt_lwe(0,&ctx);
-    lwe_ciphertext_add(&mut res_add1_ct,&storage0,&storage1);
-    let res_add2_ct = public_key.blind_matrix_access(&ct_instruction_add, &storage0, &storage1, &ctx);
-    let res_mul1_ct = public_key.blind_matrix_access(&ct_instruction_mul_unit, &storage0, &storage1, &ctx);
-    let res_mul2_ct = public_key.blind_matrix_access(&ct_instruction_mul_ten, &storage0, &storage1, &ctx);
+    lwe_ciphertext_add(&mut res_add1_ct,&storage1,&storage3);
+    let res_add2_ct = public_key.blind_matrix_access(&ct_instruction_add, &storage1, &storage3, &ctx);
+    let res_mul1_ct = public_key.blind_matrix_access(&ct_instruction_mul_unit, &storage1, &storage3, &ctx);
+    let res_mul2_ct = public_key.blind_matrix_access(&ct_instruction_mul_ten, &storage1, &storage3, &ctx);
 
     let acc = vec![res_add1_ct,res_mul1_ct,res_add2_ct,res_mul2_ct];
     let ct_acc =LUT::from_vec_of_lwe(acc,&public_key,&ctx);
@@ -303,7 +324,7 @@ pub fn store_read_cell_LUT_OA(
     lwe_ciphertext_add_assign(&mut stateplustwo,&state);
     let res_pir_2 = public_key.blind_array_access(&stateplustwo,&ct_acc,&ctx);
 
-    (res_pir_1,res_pir_2)
+    (res_pir_2,res_pir_1)
 }
 
 fn encode_instruction_add(
@@ -349,7 +370,52 @@ fn encode_instruction_mul(
     (result_unit,result_ten)
 }
 
+fn encode_instruction_position_OA(
+    instruction_position: &Vec<i64>,
+    ctx: &Context
+) -> Vec<u64>
+{
+    let mut vector= Vec::new();
+    for i in instruction_position.to_owned() {
+        if i>=0{vector.push(i as u64)
+        }
+        else { vector.push((2*ctx.message_modulus().0 + i as usize) as u64,) }
+    }
+    vector
+}
 
+pub fn write_new_cell_content_OA(
+    tape: &mut LUT,
+    cell_content: &LweCiphertext<Vec<u64>>,
+    public_key: &PublicKey,
+    ctx: &Context,
+    storage:&mut LweCiphertext<Vec<u64>>,
+)
+{
+    lwe_ciphertext_sub_assign(&mut storage.to_owned(),cell_content);
+    let lut_new_cell_content = LUT::from_lwe(&storage,&public_key,&ctx);
+    public_key.glwe_sum_assign(&mut tape.0, &lut_new_cell_content.0);
+}
+
+pub fn change_head_position_OA(
+    tape: &mut LUT,
+    instruction_change: u64,
+    ct_instruction_position: &LUT,
+    public_key: &PublicKey,
+    private_key: &PrivateKey,
+    nb_of_move : &mut LweCiphertext<Vec<u64>>,
+    mut ctx: &mut Context,
+)
+{
+    let ct_0=private_key.allocate_and_encrypt_lwe(instruction_change,&mut ctx);
+    let position_change = public_key.blind_array_access(&ct_0, ct_instruction_position, &ctx);
+    if DEBUG {
+        private_key.debug_lwe("position_change", &position_change, &ctx); //column
+    }
+    lwe_ciphertext_add_assign(nb_of_move, &position_change);
+    blind_rotate_assign(&position_change, &mut tape.0, &public_key.fourier_bsk);
+
+}
 
 
 
