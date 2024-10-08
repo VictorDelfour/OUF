@@ -77,9 +77,9 @@ dependencies = [
 
 [[package]]
 name = "concrete-csprng"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c7080e711c39c3dda834604f7c31f4634a38b8dddeb9f24db5d7801751415ad"
+checksum = "90518357249582c16a6b64d7410243dfb3109d5bf0ad1665c058c9a59f2fc4cc"
 dependencies = [
  "aes",
  "libc",
@@ -94,7 +94,7 @@ checksum = "7ab720f85aa80be9d78fba5a941458ec50d97c7856aced76707f0bf227a0c6ca"
 dependencies = [
  "aligned-vec",
  "bytemuck",
- "dyn-stack",
+ "dyn-stack 0.9.1",
  "num-complex",
  "pulp 0.11.11",
 ]
@@ -107,7 +107,7 @@ checksum = "3144f883422ee22c65d4f408c11b3406513eadc0d50b3d65bfadcb97852817e0"
 dependencies = [
  "aligned-vec",
  "bytemuck",
- "dyn-stack",
+ "dyn-stack 0.9.1",
  "num-complex",
  "pulp 0.18.21",
  "serde",
@@ -168,6 +168,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dyn-stack"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56e53799688f5632f364f8fb387488dd05db9fe45db7011be066fc20e7027f8b"
+dependencies = [
+ "bytemuck",
+ "reborrow",
+]
+
+[[package]]
 name = "either"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -222,6 +232,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.155"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -261,12 +280,12 @@ dependencies = [
  "arrayvec",
  "concrete-csprng 0.3.0",
  "concrete-fft 0.2.1",
- "dyn-stack",
+ "dyn-stack 0.9.1",
  "itertools 0.10.5",
  "num-complex",
  "rayon",
  "revolut",
- "tfhe 0.5.4",
+ "tfhe",
 ]
 
 [[package]]
@@ -379,20 +398,20 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 [[package]]
 name = "revolut"
 version = "0.1.0"
-source = "git+https://github.com/sofianeazogagh/revoLUT.git?branch=main#6b029b2f0ba11f5c203932f4ddc13bf22c374377"
+source = "git+https://github.com/sofianeazogagh/revoLUT.git?branch=main#7c7212301938a6e3dc697f7a35cf71f6b1d59a72"
 dependencies = [
  "aligned-vec",
  "arrayvec",
  "bincode",
- "concrete-csprng 0.4.0",
+ "concrete-csprng 0.4.1",
  "concrete-fft 0.4.1",
- "dyn-stack",
- "itertools 0.11.0",
+ "dyn-stack 0.10.0",
+ "itertools 0.13.0",
  "num-complex",
  "rand",
  "rayon",
  "serde",
- "tfhe 0.5.4",
+ "tfhe",
 ]
 
 [[package]]
@@ -428,26 +447,6 @@ dependencies = [
 
 [[package]]
 name = "tfhe"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c0d3938850a3e8d35b4f5784490163c4d9fd6c1bc75825c99a2bfe23ff77c07"
-dependencies = [
- "aligned-vec",
- "bincode",
- "bytemuck",
- "concrete-csprng 0.4.0",
- "concrete-fft 0.4.1",
- "dyn-stack",
- "itertools 0.11.0",
- "paste",
- "pulp 0.18.21",
- "rayon",
- "serde",
- "tfhe 0.6.3",
-]
-
-[[package]]
-name = "tfhe"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9b92a0aa32f791deacff7305f1deb2ca3f882827761029ed20eb87cfe3a5df8"
@@ -455,9 +454,9 @@ dependencies = [
  "aligned-vec",
  "bincode",
  "bytemuck",
- "concrete-csprng 0.4.0",
+ "concrete-csprng 0.4.1",
  "concrete-fft 0.4.1",
- "dyn-stack",
+ "dyn-stack 0.9.1",
  "itertools 0.11.0",
  "paste",
  "pulp 0.18.21",
