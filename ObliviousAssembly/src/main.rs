@@ -183,17 +183,24 @@ fn evaluate_oa1(
 
 ) ->LweCiphertext<Vec<u64>>{
     let mut storage = Vec::new();
+
     for i in function_storage{
         storage.push(public_key.blind_matrix_access(i, &input1, &input2, &ctx));
     }
+
+
+    // let start_time_packing = Instant::now();
+
     let result_acc =LUT::from_vec_of_lwe(storage,&public_key,&ctx);
+    // let elapsed_time_step = start_time_packing.elapsed();
+    // println!("temps packing :{}",elapsed_time_step.as_millis());
     let result = public_key.blind_array_access(&selector,&result_acc,&ctx);
     result
 }
 
 fn oa1(){
     // Generate the crypto context
-    let param = PARAM_MESSAGE_5_CARRY_0;
+    let param = PARAM_MESSAGE_3_CARRY_0;
     let mut ctx = Context::from(param);
     let private_key = PrivateKey::new(&mut ctx);
     let public_key = private_key.get_public_key();
@@ -274,9 +281,10 @@ fn oa1(){
 
 
         //println!("étape 3 \n");
-        let cell_content = read_cell_content(&tape, &public_key, &ctx);
+        let mut cell_content = read_cell_content(&tape, &public_key, &ctx);
         let mut result = evaluate_oa1(public_key, &ctx, &input1, &input2, &selector[step.clone()], &functions_storage);
         write_new_cell_content_oa(&mut tape, &cell_content, &public_key, &ctx, &mut result);
+        // write_new_cell_content_oa(&mut tape, &cell_content, &public_key, &ctx, &mut cell_content.clone());
 
         // private_key.debug_lwe("move3", &data_access[2+3*step.clone()], &ctx);
         // private_key.debug_lwe("input1", &input1, &ctx);
@@ -308,7 +316,7 @@ fn oa1(){
 
 
 
-// fn oa(){
+// fn oa2(){
 //     // Generate the crypto context
 //     let param = PARAM_MESSAGE_4_CARRY_0;
 //     let mut ctx = Context::from(param);
