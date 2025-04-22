@@ -39,18 +39,15 @@ fn oa1(){
     // for i in 0..25 {
 
     //creation of tape
-    let mut tape = vec![0, 0, 0, 1,2];
+    let mut tape = vec![0, 0, 0, 0,0];
     while tape.len() < ctx.message_modulus().0 {
         tape.push(0_u64);
     }
     let mut tape = LUT::from_vec(&tape, &private_key, &mut ctx);
 
-    let nb_cells = 2;
-
-
     let selector = generate_function_selector(&private_key, &mut ctx,);
     let data_access = generate_access(&private_key,&mut ctx,);
-    let functions_storage = generate_random_functions(&mut ctx);
+    let functions_storage = generate_random_functions_2D(&mut ctx);
 
 
 
@@ -79,13 +76,15 @@ fn oa1(){
         // let mut output = tape.clone();
         // public_key.wrapping_neg_lwe(&mut nb_of_move);
         // blind_rotate_assign(&nb_of_move, &mut output.0, &public_key.fourier_bsk);
-        // output.print(&private_key,&ctx);
+        // private_key.debug_lwe("nb_of_move",&nb_of_move,&ctx);
 
 
         // println!("étape 1 \n");
 
         let mut input1 = read_cell_content(&tape, &public_key, &ctx);
         change_head_position_oa(&mut tape, &data_access[3*step.clone()+1], public_key, &private_key, &mut nb_of_move, &mut ctx);
+        // private_key.debug_lwe("nb_of_move",&nb_of_move,&ctx);
+
 
         // private_key.debug_lwe("move2", &data_access[1+3*step.clone()], &ctx);
 
@@ -98,6 +97,8 @@ fn oa1(){
 
         let mut input2 = read_cell_content(&tape, &public_key, &ctx);
         change_head_position_oa(&mut tape, &data_access[3*step.clone()+2], public_key, &private_key, &mut nb_of_move, &mut ctx);
+        // private_key.debug_lwe("nb_of_move",&nb_of_move,&ctx);
+
 
 
 
@@ -106,9 +107,9 @@ fn oa1(){
         let mut cell_content = read_cell_content(&tape, &public_key, &ctx);
         let start_time_oa1 = Instant::now();
 
-        let mut result = evaluate_oa1(public_key, &ctx, &input1, &input2, &selector[step.clone()], &functions_storage);
+        let mut result = evaluate_oa2(public_key, &ctx, &input1, &input2, &selector[step.clone()], &functions_storage);
         let elapsed_time_oa1 = start_time_oa1.elapsed();
-        println!("temps oblivious operation :{}",elapsed_time_oa1.as_millis());
+        println!("temps PIR : {} ms",elapsed_time_oa1.as_millis());
         write_new_cell_content_oa(&mut tape, &cell_content, &public_key, &ctx, &mut result);
         // write_new_cell_content_oa(&mut tape, &cell_content, &public_key, &ctx, &mut cell_content.clone());
 
@@ -130,14 +131,66 @@ fn oa1(){
 
 
     let elapsed_time_step = start_time_total.elapsed();
-    println!("temps oblivious operation :{}",elapsed_time_step.as_millis());
+    println!("temps Step : {} ms",elapsed_time_step.as_millis());
 
     //println!("Oblivious oa End... \nReordering the tape..");
-    public_key.wrapping_neg_lwe(&mut nb_of_move);
-    blind_rotate_assign(&nb_of_move, &mut tape.0, &public_key.fourier_bsk);
+    // public_key.wrapping_neg_lwe(&mut nb_of_move);
+    // blind_rotate_assign(&nb_of_move, &mut tape.0, &public_key.fourier_bsk);
     tape.print(&private_key,&ctx);
     // }
 
+}
+
+/// Lift a 2-digit value to its OHE as a vector of LWE
+pub fn blind_tensor_lift_LWE(
+    x: &LWE,
+    y: &LWE,
+    ctx: &Context,
+    public_key: &PublicKey,
+) -> Vec<LWE> {
+    let p = ctx.full_message_modulus() as u64;
+    let mut lut = LUT::from_vec_trivially(&vec![1], ctx);
+    public_key.blind_rotation_assign(&public_key.neg_lwe(&x, &ctx), &mut lut, ctx);
+    let mut result = Vec::new();
+    for d in 0..p {
+        let value = public_key.lut_extract(&lut, d as usize, &ctx);
+        // let start_time_packing = Instant::now();
+        let mut lut_temp = LUT::from_lwe(&value,&public_key,&ctx);
+        public_key.blind_rotation_assign(&public_key.neg_lwe(&y, &ctx), &mut lut_temp, ctx);
+        // let elapsed_time_step = start_time_packing.elapsed();
+        // println!("packing 1 elt + BR :{}",elapsed_time_step.as_millis());
+        for e in 0..p {
+            let value = public_key.lut_extract(&lut_temp, e as usize, &ctx);
+            result.push(value);
+        }
+    }
+    result
+}
+/// PIR-like construction to access a matrix element blindly, returns Enc(matrix[x][y])
+/// time: 2BR + pKS
+pub fn blind_matrix_access_clear_1D(
+    public_key: &PublicKey,
+    data: &Vec<u64>,
+    x: &LWE,
+    y: &LWE,
+    ctx: &Context,
+    OHE: &Vec<LWE>,
+) -> LWE {
+    let zero = public_key.allocate_and_trivially_encrypt_lwe(0, ctx);
+    let l = data
+        .iter()
+        .enumerate()
+        .map(|(i, val)| {
+            let mut xi = OHE[i].clone();
+            lwe_ciphertext_cleartext_mul_assign(&mut xi, Cleartext(*val));
+            xi
+        });
+
+    // Sum all the resulting LWE ciphertexts into one
+    l.fold(zero, |mut acc, elt| {
+        lwe_ciphertext_add_assign(&mut acc, &elt);
+        acc
+    })
 }
 
 
@@ -241,16 +294,46 @@ fn evaluate_oa1(
     let mut storage = Vec::new();
 
     for i in function_storage{
-        let start_time_bma = Instant::now();
+        // let start_time_bma = Instant::now();
 
         storage.push(public_key.blind_matrix_access_clear(i, &input1, &input2, &ctx));
-        let elapsed_time_bma = start_time_bma.elapsed();
-        println!("temps oblivious operation :{} ms",elapsed_time_bma.as_millis());
+        // let elapsed_time_bma = start_time_bma.elapsed();
+        // println!("temps clear BMA :{} ms",elapsed_time_bma.as_millis());
     }
 
 
 
     // let start_time_packing = Instant::now();
+
+    let result_acc =LUT::from_vec_of_lwe(&storage, &public_key, &ctx);
+    // let elapsed_time_step = start_time_packing.elapsed();
+    // println!("temps packing :{}",elapsed_time_step.as_millis());
+    let result = public_key.blind_array_access(&selector,&result_acc,&ctx);
+    result
+}
+
+fn evaluate_oa2(
+    public_key: &PublicKey,
+    ctx: &Context,
+    input1 :&LweCiphertext<Vec<u64>>,
+    input2 :&LweCiphertext<Vec<u64>>,
+    selector:&LweCiphertext<Vec<u64>>,
+    function_storage: &Vec<Vec<u64>>,
+
+) ->LweCiphertext<Vec<u64>>{
+    let OHE = blind_tensor_lift_LWE(input1, input2, &ctx, &public_key);
+    let mut storage = Vec::new();
+    for i in function_storage{
+        // let start_time_bma = Instant::now();
+
+        storage.push(blind_matrix_access_clear_1D(public_key,i, &input1, &input2, &ctx,&OHE));
+        // let elapsed_time_bma = start_time_bma.elapsed();
+        // println!("temps clear BMA :{} ms",elapsed_time_bma.as_millis());
+    }
+
+
+
+     // let start_time_packing = Instant::now();
 
     let result_acc =LUT::from_vec_of_lwe(&storage, &public_key, &ctx);
     // let elapsed_time_step = start_time_packing.elapsed();
@@ -275,6 +358,18 @@ fn generate_random_functions(ctx: &mut Context)->Vec<Vec<Vec<u64>>>{
     result
 }
 
+fn generate_random_functions_2D(ctx: &mut Context)->Vec<Vec<u64>>{
+    let mut result = Vec::new();
+    for i in 0..ctx.full_message_modulus() as u64{
+        let mut line = Vec::new();
+        for j in 0..(ctx.full_message_modulus() as u64)*(ctx.full_message_modulus() as u64){
+            line.push(1);
+        }
+        result.push(line);
+    }
+    result
+}
+
 
 
 fn generate_access(
@@ -284,8 +379,8 @@ fn generate_access(
     for i in 0..1{
         let mut j =i+1;
         while j>0 {
-            result.push(3 + j.clone() - 1);
-            result.push(3 + j.clone());
+            result.push(0);
+            result.push(0);
             result.push(0);
             j-=1;
         }
@@ -320,9 +415,7 @@ fn generate_function_selector(
     mut ctx: &mut Context,
 )->Vec<LweCiphertext<Vec<u64>>>{
     let mut result = Vec::new();
-    for i in 0..((2)/2){
-        result.push(0);
-    }
+    result.push(0);
     let mut result_encrypted = Vec::new();
     for i in result.clone(){
         result_encrypted.push(private_key.allocate_and_encrypt_lwe(i,&mut ctx));
