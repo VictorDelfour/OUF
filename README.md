@@ -25,8 +25,47 @@ This proof of concept is implemented using the [`tfhe-rs`](https://github.com/za
 Make sure you have **Rust** and **Cargo** installed.
 
 ### 1. Install the Nightly Toolchain
-
-```bash
+'''bash
 rustup toolchain install nightly
 
+### 2. Use the Nightly Toolchain
 
+Choose one of the following:
+
+**Option A:** Prefix commands with `+nightly`  
+Example: 
+'''bash
+cargo +nightly build  
+cargo +nightly run
+'''
+**Option B:** Set nightly as the default for this project  
+Run:  
+'''bash
+rustup override set nightly
+'''
+Then you can simply run:  
+'''bash
+cargo build
+'''
+---
+
+## ▶️ Usage
+
+1. Clone the repository and navigate to the project directory:  
+'''bash
+git clone https://github.com/yourusername/ouf.git  
+cd ouf
+'''
+2. Edit `src/main.rs` to define your function and input.
+
+3. Run the project:  
+'''bash
+cargo run --release
+'''
+> ⚠️ Ensure your function is compatible with the operations supported by `tfhe-rs`.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for more information.
