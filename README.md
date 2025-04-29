@@ -27,7 +27,7 @@ Make sure you have **Rust** and **Cargo** installed.
 ### 1. Install the Nightly Toolchain
 '''bash
 rustup toolchain install nightly
-
+'''
 ### 2. Use the Nightly Toolchain
 
 Choose one of the following:
