@@ -62,7 +62,7 @@ cd ouf
 ```bash
 cargo run --release
 ```
-> ⚠️ Ensure your function is compatible with the operations supported by `tfhe-rs`.
+> ⚠️ Ensure your function is compatible with the parameters supported by `tfhe-rs`.
 
 ---
 
