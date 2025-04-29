@@ -69,3 +69,10 @@ cargo run --release
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](./LICENSE) for more information.
+
+---
+
+## 📚 Cite This Work
+
+If you use this work in your research or publication, please cite it as:
+Paper to come.
