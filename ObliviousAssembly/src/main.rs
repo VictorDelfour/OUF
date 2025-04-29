@@ -35,8 +35,6 @@ fn ofe(){
     let functions_storage = generate_functions(&private_key,&mut ctx);
 
 
-    let mut nb_of_move = public_key.allocate_and_trivially_encrypt_lwe(0, &ctx);
-
     let start_time_total = Instant::now();
     let mut step = 0;
 
@@ -46,15 +44,15 @@ fn ofe(){
         let start_time_step = Instant::now();
 
         ///moving the head to input 1 and reading it
-        change_head_position_ofe(&mut tape,&data_access[3*step.clone()] , public_key, &private_key, &mut nb_of_move, &mut ctx);
+        change_head_position_ofe(&mut tape,&data_access[3*step.clone()] , public_key,   &mut ctx);
         let mut input1 = read_cell_content(&tape, &public_key, &ctx);
 
         ///moving the head to input 2 and reading it
-        change_head_position_ofe(&mut tape, &data_access[3*step.clone()+1], public_key, &private_key, &mut nb_of_move, &mut ctx);
+        change_head_position_ofe(&mut tape, &data_access[3*step.clone()+1], public_key,   &mut ctx);
         let mut input2 = read_cell_content(&tape, &public_key, &ctx);
 
         ///moving the head to output location and reading it
-        change_head_position_ofe(&mut tape, &data_access[3*step.clone()+2], public_key, &private_key, &mut nb_of_move, &mut ctx);
+        change_head_position_ofe(&mut tape, &data_access[3*step.clone()+2], public_key,   &mut ctx);
         let mut cell_content = read_cell_content(&tape, &public_key, &ctx);
 
         ///computing f_selector(input1, input2) and writing it at output location
@@ -80,12 +78,9 @@ pub fn change_head_position_ofe(
     tape: &mut LUT,
     data_access: &LweCiphertext<Vec<u64>>,
     public_key: &PublicKey,
-    private_key: &PrivateKey,
-    nb_of_move : &mut LweCiphertext<Vec<u64>>,
     mut ctx: &mut Context,
 )
 {
-    lwe_ciphertext_add_assign(nb_of_move, &data_access);
     blind_rotate_assign(&data_access, &mut tape.0, &public_key.fourier_bsk);
 
 }
