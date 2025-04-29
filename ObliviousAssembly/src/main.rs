@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, vec};
 use std::fs::OpenOptions;
 use std::time::{Duration, Instant};
 
@@ -9,228 +9,253 @@ use std::io::Write;
 
 
 const DEBUG: bool = false; // true if willing to decrypt the intermediate tape
-const COMPARE: bool = true; // true if willing to compare OTM to OMov
+// const COMPARE: bool = true; // true if willing to compare OTM to OMov
 
 pub fn main()
 {
-
-    // Generate the crypto context
-    let param = PARAM_MESSAGE_3_CARRY_0;
-    let mut ctx = Context::from(param);
-    let private_key = PrivateKey::new(&mut ctx);
-    let public_key = private_key.get_public_key();
-    a();
+    for i in 0..1{
+        oa1();
+    }
 }
 
-pub fn a(){
-    let args: Vec<String> = env::args().collect();
-    let mut step = 7;
-    let mut program = 0;
-    let mut input_value = 11;
-
-    for (i, arg) in args.iter().enumerate() {
-        if arg == "-step" && i < args.len() - 1 {
-            step = args[i + 1].parse().unwrap_or(7);
-        }
-        if arg == "-program" && i < args.len() - 1 {
-            program = args[i + 1].parse().unwrap_or(0);
-        }
-        if arg.starts_with("-input=") {
-            input_value = arg.split("=").nth(1).unwrap().parse().unwrap_or(0);
-        }
-    }
-
+fn oa1(){
     // Generate the crypto context
-    let param = PARAM_MESSAGE_3_CARRY_0;
+    let param = PARAM_MESSAGE_4_CARRY_0;
     let mut ctx = Context::from(param);
-    let private_key = PrivateKey::new(&mut ctx);
+    let private_key = key(ctx.parameters());
     let public_key = private_key.get_public_key();
 
-    println!("Key generated");
 
 
-    //Fichier resultat
-
-    let mut output_file_step = OpenOptions::new()
+    let mut output_file_oa = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("resultats_compare.txt")
+        .open("resultats_oa.txt")
         .expect("Impossible d'ouvrir le fichier");
 
     // En tête
-    writeln!(output_file_step, "execution,method,params,time").expect("Impossible d'écrire dans le fichier");
+    writeln!(output_file_oa, "execution,params,time").expect("Impossible d'écrire dans le fichier");
 
+    // for i in 0..25 {
 
     //creation of tape
-    let mut tape = Vec::new();
-    while input_value > 0 {
-        tape.push(input_value % 2);
-        input_value /= 2;
-    }
-    tape.reverse();
+    let mut tape = vec![0, 0, 0, 0,0];
     while tape.len() < ctx.message_modulus().0 {
-        tape.push(2_u64);
+        tape.push(0_u64);
     }
-    println!("Tape : {:?}", tape);
     let mut tape = LUT::from_vec(&tape, &private_key, &mut ctx);
-    println!("Tape Encrypted");
-    let mut state = private_key.allocate_and_encrypt_lwe(0, &mut ctx);
-    println!("State Encrypted");
+
+    let selector = generate_function_selector(&private_key, &mut ctx,);
+    let data_access = generate_access(&private_key,&mut ctx,);
+    let functions_storage = generate_random_functions(&private_key,&mut ctx);
 
 
-    let mut instruction_write = Vec::new();
-    let mut instruction_position = Vec::new();
-    let mut instruction_state = Vec::new();
-    let mut instruction_storage = Vec::new();
-    // 0 : write / 1 : store and write / 2 : store / 3: nothing
-
-    // Other program
-    match program {
-        0 => {
-            println!("---------------  MUTIPLICATION BY 2 ---------------");
-            instruction_write = vec![
-                vec![0,1,0],
-                vec![0,1,2]
-
-            ];
-            instruction_position = vec![
-                vec!['D','D','N'],
-                vec!['N','N','N']
-            ];
-            instruction_state = vec![
-                vec![0,0,1],
-                vec![1,1,1]
-            ];
-            instruction_storage = vec![
-                vec![3,3,3],
-                vec![3,3,3]
-            ];
-        },
-        _ => {
-
-            println!("Invalid program");
-            
-        },
-    }
-
-
-
-    encode_instruction_write(&mut instruction_write, &ctx);
-
-
-    let instruction_position = encode_instruction_position(&instruction_position, &ctx);
-
-    // Use encrypt_matrix_with_padding for the non-leaky version
-    let ct_instruction_write = private_key.encrypt_matrix(&mut ctx, &instruction_write);
-    let ct_instruction_position = private_key.encrypt_matrix(&mut ctx, &instruction_position);
-    let ct_instruction_state = private_key.encrypt_matrix(&mut ctx, &instruction_state);
-    let ct_instruction_storage = private_key.encrypt_matrix(&mut ctx, &instruction_storage);
-
-    println!("Instructions Encrypted");
     let mut nb_of_move = public_key.allocate_and_trivially_encrypt_lwe(0, &ctx);
-    let storage = public_key.allocate_and_trivially_encrypt_lwe(0, &ctx);
-    let storage_index = public_key.allocate_and_trivially_encrypt_lwe(0, &ctx);
+
+    let start_time_total = Instant::now();
+    let mut step = 0;
+    while step < selector.len() {
+        println!("step {}",&step);
 
 
 
-    println!("Oblivious Mov Start..");
-    let mut methode = "OMov";
-    for i in 0..step {
+        // println!("étape 0 \n");
 
-        println!("--- STEP {} ",i);
-
-        let start_time_step = Instant::now();
-
-        let cell_content = read_cell_content(&tape, &public_key, &ctx);
-
-
-        if DEBUG {
-        private_key.debug_lwe("State ", &state, &ctx); //line
-        private_key.debug_lwe("Cell content", &cell_content, &ctx); //column
-        }
-        let (storage,storage_index) = store_read_cell(&public_key,&ctx,&cell_content,&storage,&state,&ct_instruction_storage);
-        write_new_cell_content(&mut tape, &cell_content, &storage,&storage_index,&state, &ct_instruction_write, public_key, &ctx,&private_key);
-        change_head_position(&mut tape, &cell_content, &state, &ct_instruction_position, public_key, &ctx, &mut nb_of_move, &private_key); 
-        state = get_new_state(&cell_content, &state, &ct_instruction_state, public_key, &ctx,&private_key);
-
-        let elapsed_time_step = start_time_step.elapsed();
-        if COMPARE {
-            // Écrire les temps dans le fichier
-            writeln!(output_file_step, "{:?},{:?},{:?},{:?}", i, methode, param.message_modulus.0, elapsed_time_step.as_millis()).expect("Impossible d'écrire dans le fichier");
-        }
+        change_head_position_oa(&mut tape,&data_access[3*step.clone()] , public_key, &private_key, &mut nb_of_move, &mut ctx);
+        // private_key.debug_lwe("move1", &data_access[3*step.clone()], &ctx);
+        //
+        // let mut output = tape.clone();
+        // public_key.wrapping_neg_lwe(&mut nb_of_move);
+        // blind_rotate_assign(&nb_of_move, &mut output.0, &public_key.fourier_bsk);
+        // private_key.debug_lwe("nb_of_move",&nb_of_move,&ctx);
 
 
-        if DEBUG {
-            print!("New Tape : ");
-            tape.print(&private_key, &ctx);
-        }
+        // println!("étape 1 \n");
+
+        let mut input1 = read_cell_content(&tape, &public_key, &ctx);
+        change_head_position_oa(&mut tape, &data_access[3*step.clone()+1], public_key, &private_key, &mut nb_of_move, &mut ctx);
+        // private_key.debug_lwe("nb_of_move",&nb_of_move,&ctx);
+
+
+        // private_key.debug_lwe("move2", &data_access[1+3*step.clone()], &ctx);
+
+        // let mut output = tape.clone();
+        // public_key.wrapping_neg_lwe(&mut nb_of_move);
+        // blind_rotate_assign(&nb_of_move, &mut output.0, &public_key.fourier_bsk);
+        // output.print(&private_key,&ctx);
+
+        // println!("étape 2 \n");
+
+        let mut input2 = read_cell_content(&tape, &public_key, &ctx);
+        change_head_position_oa(&mut tape, &data_access[3*step.clone()+2], public_key, &private_key, &mut nb_of_move, &mut ctx);
+        // private_key.debug_lwe("nb_of_move",&nb_of_move,&ctx);
+
+
+
+
+
+        println!("étape 3 \n");
+        let mut cell_content = read_cell_content(&tape, &public_key, &ctx);
+        let start_time_oa1 = Instant::now();
+
+        let mut result = evaluate_oa1(public_key, &ctx, &input1, &input2, &selector[step.clone()], &functions_storage);
+        let elapsed_time_oa1 = start_time_oa1.elapsed();
+        println!("temps PIR : {} ms",elapsed_time_oa1.as_millis());
+        write_new_cell_content_oa(&mut tape, &cell_content, &public_key, &ctx, &mut result);
+        // write_new_cell_content_oa(&mut tape, &cell_content, &public_key, &ctx, &mut cell_content.clone());
+
+        // private_key.debug_lwe("move3", &data_access[2+3*step.clone()], &ctx);
+        // private_key.debug_lwe("input1", &input1, &ctx);
+        // private_key.debug_lwe("input2", &input2, &ctx);
+        // private_key.debug_lwe("result", &result, &ctx);
+        // private_key.debug_lwe("selector", &selector[step.clone()], &ctx);
+        //
+        //
+        // let mut output = tape.clone();
+        // public_key.wrapping_neg_lwe(&mut nb_of_move);
+        // blind_rotate_assign(&nb_of_move, &mut output.0, &public_key.fourier_bsk);
+        // output.print(&private_key,&ctx);
+
+        step += 1;
 
     }
 
-    println!("Oblivious Mov End... \nReordering the tape..");
-    public_key.wrapping_neg_lwe(&mut nb_of_move);
-    blind_rotate_assign(&nb_of_move, &mut tape.0, &public_key.fourier_bsk);
 
+    let elapsed_time_step = start_time_total.elapsed();
+    println!("temps Step : {} ms",elapsed_time_step.as_millis());
 
+    //println!("Oblivious oa End... \nReordering the tape..");
+    // public_key.wrapping_neg_lwe(&mut nb_of_move);
+    // blind_rotate_assign(&nb_of_move, &mut tape.0, &public_key.fourier_bsk);
+    tape.print(&private_key,&ctx);
+    // }
 
-    println!("---------------  FINAL TAPE ---------------");
-    tape.print(&private_key, &ctx);
+}
 
-    if COMPARE {
-        //creation of tape
-        let mut tape = Vec::new();
-        while input_value > 0 {
-            tape.push(input_value % 2);
-            input_value /= 2;
+/// Lift a 2-digit value to its OHE as a vector of LWE
+pub fn blind_tensor_lift_LWE(
+    x: &LWE,
+    y: &LWE,
+    ctx: &Context,
+    public_key: &PublicKey,
+) -> Vec<LWE> {
+    let p = ctx.full_message_modulus() as u64;
+    let mut lut = LUT::from_vec_trivially(&vec![1], ctx);
+    public_key.blind_rotation_assign(&public_key.neg_lwe(&x, &ctx), &mut lut, ctx);
+    let mut result = Vec::new();
+    for d in 0..p {
+        let value = public_key.lut_extract(&lut, d as usize, &ctx);
+        // let start_time_packing = Instant::now();
+        let mut lut_temp = LUT::from_lwe(&value,&public_key,&ctx);
+        public_key.blind_rotation_assign(&public_key.neg_lwe(&y, &ctx), &mut lut_temp, ctx);
+        // let elapsed_time_step = start_time_packing.elapsed();
+        // println!("packing 1 elt + BR :{}",elapsed_time_step.as_millis());
+        for e in 0..p {
+            let value = public_key.lut_extract(&lut_temp, e as usize, &ctx);
+            result.push(value);
         }
-        tape.reverse();
-        while tape.len() < ctx.message_modulus().0 {
-            tape.push(2_u64);
-        }
-        println!("Tape : {:?}", tape);
-        let mut tape = LUT::from_vec(&tape, &private_key, &mut ctx);
-        println!("Tape Encrypted");
-        let mut state = private_key.allocate_and_encrypt_lwe(0, &mut ctx);
-        println!("State Encrypted");
-
-        let mut methode = "OTM";
-        for i in 0..step {
-            println!("--- STEP {} ", i);
-            let start_time_step = Instant::now();
-
-            let cell_content = read_cell_content(&tape, &public_key, &ctx);
-
-
-            if DEBUG {
-                private_key.debug_lwe("State ", &state, &ctx); //line
-                private_key.debug_lwe("Cell content", &cell_content, &ctx); //column
-            }
-
-            write_new_cell_content_OTM(&mut tape, &cell_content, &state, &ct_instruction_write, public_key, &ctx, &private_key);
-            change_head_position(&mut tape, &cell_content, &state, &ct_instruction_position, public_key, &ctx, &mut nb_of_move, &private_key);
-            state = get_new_state(&cell_content, &state, &ct_instruction_state, public_key, &ctx, &private_key);
-
-            let elapsed_time_step = start_time_step.elapsed();
-
-            // Écrire les temps dans le fichier
-            writeln!(output_file_step, "{:?},{:?},{:?},{:?}", i, methode, param.message_modulus.0, elapsed_time_step.as_millis()).expect("Impossible d'écrire dans le fichier");
-
-
-            if DEBUG {
-                print!("New Tape : ");
-                tape.print(&private_key, &ctx);
-            }
-        }
-        println!("Oblivious TM End... \nReordering the tape..");
-        public_key.wrapping_neg_lwe(&mut nb_of_move);
-        blind_rotate_assign(&nb_of_move, &mut tape.0, &public_key.fourier_bsk);
-
-
-
-        println!("---------------  FINAL TAPE ---------------");
-        tape.print(&private_key, &ctx);
     }
+    result
+}
+/// PIR-like construction to access a matrix element blindly, returns Enc(matrix[x][y])
+/// time: 2BR + pKS
+pub fn blind_matrix_access_clear_1D(
+    public_key: &PublicKey,
+    data: &Vec<u64>,
+    x: &LWE,
+    y: &LWE,
+    ctx: &Context,
+    OHE: &Vec<LWE>,
+) -> LWE {
+    let zero = public_key.allocate_and_trivially_encrypt_lwe(0, ctx);
+    let l = data
+        .iter()
+        .enumerate()
+        .map(|(i, val)| {
+            let mut xi = OHE[i].clone();
+            lwe_ciphertext_cleartext_mul_assign(&mut xi, Cleartext(*val));
+            xi
+        });
 
+    // Sum all the resulting LWE ciphertexts into one
+    l.fold(zero, |mut acc, elt| {
+        lwe_ciphertext_add_assign(&mut acc, &elt);
+        acc
+    })
+}
+
+
+
+
+
+pub fn store_read_cell_LUT_oa(
+    public_key: &PublicKey,
+    ctx: &Context,
+    storage1: &LweCiphertext<Vec<u64>>,
+    storage3: &LweCiphertext<Vec<u64>>,
+    state:&LweCiphertext<Vec<u64>>,
+    ct_instruction_add: &Vec<LUT>,
+    ct_instruction_mul_unit: &Vec<LUT>,
+    ct_instruction_mul_ten: &Vec<LUT>,
+
+) -> (LweCiphertext<Vec<u64>>,LweCiphertext<Vec<u64>>){
+
+    let mut res_add1_ct = public_key.allocate_and_trivially_encrypt_lwe(0,&ctx);
+    lwe_ciphertext_add(&mut res_add1_ct,&storage1,&storage3);
+    let res_add2_ct = public_key.blind_matrix_access(&ct_instruction_add, &storage1, &storage3, &ctx);
+    let res_mul1_ct = public_key.blind_matrix_access(&ct_instruction_mul_unit, &storage1, &storage3, &ctx);
+    let res_mul2_ct = public_key.blind_matrix_access(&ct_instruction_mul_ten, &storage1, &storage3, &ctx);
+
+    let acc = vec![res_add1_ct,res_mul1_ct,res_add2_ct,res_mul2_ct];
+    let ct_acc =LUT::from_vec_of_lwe(&*acc, &public_key, &ctx);
+
+    let res_pir_1 = public_key.blind_array_access(&state,&ct_acc,&ctx);
+
+    let mut stateplustwo = public_key.allocate_and_trivially_encrypt_lwe(2,&ctx);
+    lwe_ciphertext_add_assign(&mut stateplustwo,&state);
+    let res_pir_2 = public_key.blind_array_access(&stateplustwo,&ct_acc,&ctx);
+
+    (res_pir_2,res_pir_1)
+}
+
+fn encode_instruction_position_oa(
+    instruction_position: &Vec<i64>,
+    ctx: &Context
+) -> Vec<u64>
+{
+    let mut vector= Vec::new();
+    for i in instruction_position.to_owned() {
+        if i>=0{vector.push(i as u64)
+        }
+        else { vector.push((2*ctx.message_modulus().0 + i as usize) as u64,) }
+    }
+    vector
+}
+
+pub fn write_new_cell_content_oa(
+    tape: &mut LUT,
+    cell_content: &LweCiphertext<Vec<u64>>,
+    public_key: &PublicKey,
+    ctx: &Context,
+    storage:&mut LweCiphertext<Vec<u64>>,
+)
+{
+    lwe_ciphertext_sub_assign(&mut storage.to_owned(),cell_content);
+    let lut_new_cell_content = LUT::from_lwe(&storage,&public_key,&ctx);
+    public_key.glwe_sum_assign(&mut tape.0, &lut_new_cell_content.0);
+}
+
+pub fn change_head_position_oa(
+    tape: &mut LUT,
+    data_access: &LweCiphertext<Vec<u64>>,
+    public_key: &PublicKey,
+    private_key: &PrivateKey,
+    nb_of_move : &mut LweCiphertext<Vec<u64>>,
+    mut ctx: &mut Context,
+)
+{
+    lwe_ciphertext_add_assign(nb_of_move, &data_access);
+    blind_rotate_assign(&data_access, &mut tape.0, &public_key.fourier_bsk);
 
 }
 
@@ -238,183 +263,127 @@ pub fn read_cell_content(
     tape: &LUT,
     public_key: &PublicKey,
     ctx: &Context,
-) -> LweCiphertext<Vec<u64>> 
+) -> LweCiphertext<Vec<u64>>
 {
-    let mut ct_0 = LweCiphertext::new(0, ctx.small_lwe_dimension().to_lwe_size(), ctx.ciphertext_modulus());
+
+    let mut ct_0 = LweCiphertext::new(0, ctx.big_lwe_dimension().to_lwe_size(), ctx.ciphertext_modulus());
     trivially_encrypt_lwe_ciphertext(&mut ct_0, Plaintext(ctx.full_message_modulus() as u64));
     let cell_content = public_key.blind_array_access(&ct_0, &tape, &ctx);
 
     return cell_content;
 }
 
-pub fn store_read_cell(
+fn evaluate_oa1(
     public_key: &PublicKey,
     ctx: &Context,
-    cell_content: &LweCiphertext<Vec<u64>>,
-    storage:&LweCiphertext<Vec<u64>>,
-    state:&LweCiphertext<Vec<u64>>,
-    ct_instruction_storage: &Vec<LUT>,
+    input1 :&LweCiphertext<Vec<u64>>,
+    input2 :&LweCiphertext<Vec<u64>>,
+    selector:&LweCiphertext<Vec<u64>>,
+    function_storage: &Vec<Vec<LUT>>,
 
-) -> (LweCiphertext<Vec<u64>>,LweCiphertext<Vec<u64>>){
-    let storage_index = public_key.blind_matrix_access(&ct_instruction_storage, &state, &cell_content, &ctx);
-    let mut vector= Vec::new();
-    vector =vec![storage.to_owned(),cell_content.to_owned(),cell_content.to_owned(),storage.to_owned()];
-    let accumulator = LUT::from_vec_of_lwe(vector, public_key, ctx);
-    let storage = public_key.blind_array_access(&storage_index, &accumulator,  &ctx);
-    return (storage,storage_index)
-}
+) ->LweCiphertext<Vec<u64>>{
+    let mut storage = Vec::new();
 
+    for i in function_storage{
+        // let start_time_bma = Instant::now();
 
-pub fn write_new_cell_content_OTM(
-    tape: &mut LUT,
-    cell_content: &LweCiphertext<Vec<u64>>,
-    state: &LweCiphertext<Vec<u64>>,
-    ct_instruction_write: &Vec<LUT>,
-    public_key: &PublicKey,
-    ctx: &Context,
-    private_key : &PrivateKey
-)
-{
-
-
-    let new_cell_content = public_key.blind_matrix_access(&ct_instruction_write, &state, &cell_content, &ctx);
-    let lut_new_cell_content = LUT::from_lwe(&new_cell_content,&public_key,&ctx);
-    if DEBUG{
-        private_key.debug_lwe("(W) new cell content = ", &new_cell_content, ctx);
-    }
-    public_key.glwe_sum_assign(&mut tape.0, &lut_new_cell_content.0);
-}
-
-
-pub fn write_new_cell_content(
-    tape: &mut LUT,
-    cell_content: &LweCiphertext<Vec<u64>>,
-    storage: &LweCiphertext<Vec<u64>>,
-    storage_index: &LweCiphertext<Vec<u64>>,
-    state: &LweCiphertext<Vec<u64>>,
-    ct_instruction_write: &Vec<LUT>,
-    public_key: &PublicKey,
-    ctx: &Context,
-    private_key : &PrivateKey
-)
-{
-
-
-    let mut new_cell_content = public_key.blind_matrix_access(&ct_instruction_write, &state, &cell_content, &ctx);
-
-    let mut vector= Vec::new();
-    vector =vec![storage.to_owned(),storage.to_owned(),new_cell_content.to_owned(),new_cell_content.to_owned()];
-    let accumulator = LUT::from_vec_of_lwe(vector, public_key, ctx);
-    new_cell_content = public_key.blind_array_access(&storage_index, &accumulator,  &ctx);
-
-    let lut_new_cell_content = LUT::from_lwe(&new_cell_content,&public_key,&ctx);
-    if DEBUG{
-    private_key.debug_lwe("(W) new cell content = ", &new_cell_content, ctx);
-    }
-    public_key.glwe_sum_assign(&mut tape.0, &lut_new_cell_content.0);
-}
-
-
-
-pub fn change_head_position(
-    tape: &mut LUT,
-    cell_content: &LweCiphertext<Vec<u64>>,
-    state: &LweCiphertext<Vec<u64>>,
-    ct_instruction_position: &Vec<LUT>,
-    public_key: &PublicKey,
-    ctx: &Context,
-    nb_of_move : &mut LweCiphertext<Vec<u64>>,
-    private_key : &PrivateKey
-)
-{
-
-    let position_change = public_key.blind_matrix_access(&ct_instruction_position,&state , &cell_content, &ctx);
-    if DEBUG {
-    private_key.debug_lwe("(P) next move = ", &position_change, ctx);
-    }
-    lwe_ciphertext_add_assign(nb_of_move, &position_change);
-    blind_rotate_assign(&position_change, &mut tape.0, &public_key.fourier_bsk);
-
-}
-
-pub fn get_new_state(
-    cell_content: &LweCiphertext<Vec<u64>>,
-    state: &LweCiphertext<Vec<u64>>,
-    ct_instruction_state: &Vec<LUT>,
-    public_key: &PublicKey,
-    ctx: &Context,
-    private_key : &PrivateKey
-) -> LweCiphertext<Vec<u64>>
-{
-
-    let new_state = public_key.blind_matrix_access(&ct_instruction_state, &state, &cell_content, &ctx);
-    if DEBUG{
-    private_key.debug_lwe("(S) new state = ", &new_state, ctx);
+        storage.push(public_key.blind_matrix_access(i, &input1, &input2, &ctx));
+        // let elapsed_time_bma = start_time_bma.elapsed();
+        // println!("temps clear BMA :{} ms",elapsed_time_bma.as_millis());
     }
 
-    return new_state
+    let result_acc =LUT::from_vec_of_lwe(&storage, &public_key, &ctx);
+    let result = public_key.blind_array_access(&selector,&result_acc,&ctx);
+    result
 }
 
 
-/// Encode the matrix instruction_write appropriatly (we suppose here that the alphabet is {0,1,2})
-fn encode_instruction_write(
-    instruction_write : &mut Vec<Vec<u64>>,
-    ctx: &Context
-)
-{
-    let rows = instruction_write.len();
 
-    for i in 0..rows {
-        // Read 0
-        match instruction_write[i][0] {
-            0 => instruction_write[i][0] = 0,
-            1 => instruction_write[i][0] = 1,
-            2 => instruction_write[i][0] = 2,
-            _ => (),
+fn generate_random_functions(
+    private_key: &PrivateKey,
+    mut ctx: &mut Context)->Vec<Vec<LUT>>{
+    let mut result_clear = Vec::new();
+    for i in 0..ctx.full_message_modulus() as u64{
+        let mut matrix = Vec::new();
+        for j in 0..ctx.full_message_modulus() as u64{
+            let mut line = Vec::new();
+            for k in 0..ctx.full_message_modulus() as u64{
+                line.push(k);
+            }
+            matrix.push(line);
         }
-        // Read 1
-        match instruction_write[i][1] {
-            0 => instruction_write[i][1] = (ctx.message_modulus().0 - 1) as u64,
-            1 => instruction_write[i][1] = 0,
-            2 => instruction_write[i][1] = 1,
-            _ => (),
-        }
+        result_clear.push(matrix);
+    }
+    let mut result = Vec::new();
+    for i in result_clear {
+        let f = private_key.encrypt_matrix(&mut ctx, &i);
+        result.push(f)}
+    result
+}
 
-        // Read 2
-        match instruction_write[i][2] {
-            0 => instruction_write[i][2] = (ctx.message_modulus().0 - 2) as u64,
-            1 => instruction_write[i][2] = (ctx.message_modulus().0 - 1) as u64,
-            2 => instruction_write[i][2] = 0,
-            _ => (),
+fn generate_random_functions_2D(ctx: &mut Context)->Vec<Vec<u64>>{
+    let mut result = Vec::new();
+    for i in 0..ctx.full_message_modulus() as u64{
+        let mut line = Vec::new();
+        for j in 0..(ctx.full_message_modulus() as u64)*(ctx.full_message_modulus() as u64){
+            line.push(1);
+        }
+        result.push(line);
+    }
+    result
+}
+
+
+
+fn generate_access(
+    private_key: &PrivateKey,
+    mut ctx: &mut Context)->Vec<LweCiphertext<Vec<u64>>>{
+    let mut result = Vec::new();
+    for i in 0..1{
+        let mut j =i+1;
+        while j>0 {
+            result.push(0);
+            result.push(0);
+            result.push(0);
+            j-=1;
         }
     }
+    let mut relative_result = Vec::new() as Vec<i32>;
+    relative_result.push(result[0].clone() as i32);
+    for i in 1..result.len(){
+        relative_result.push((result[i].clone() as i32 - result[i.clone() - 1].clone() as i32) as i32);
+    }
+
+    let mut relative_result_positive = Vec::new() as Vec<u64>;
+
+    for i in relative_result{
+        if i<=0{
+            relative_result_positive.push(i as u64+2*ctx.message_modulus().0 as u64);
+        }
+        else {
+            relative_result_positive.push(i as u64);
+        }
+    }
+
+
+    let mut result_encrypted = Vec::new();
+    for i in relative_result_positive{
+        result_encrypted.push(private_key.allocate_and_encrypt_lwe(i,&mut ctx));
+    }
+    result_encrypted
 }
 
+fn generate_function_selector(
+    private_key: &PrivateKey,
+    mut ctx: &mut Context,
+)->Vec<LweCiphertext<Vec<u64>>>{
+    let mut result = Vec::new();
+    result.push(0);
+    let mut result_encrypted = Vec::new();
+    for i in result.clone(){
+        result_encrypted.push(private_key.allocate_and_encrypt_lwe(i,&mut ctx));
+    }
+    // print!("selector : {:?}", result.clone());
 
-
-/// Encode the matrix instruction_position appropriatly
-fn encode_instruction_position(
-    instruction_position: &Vec<Vec<char>>,
-    ctx: &Context
-) -> Vec<Vec<u64>> 
-{
-    let encoded_matrix: Vec<Vec<u64>> = instruction_position
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|&col| match col {
-                    'D' => 1,
-                    'G' => (2*ctx.message_modulus().0 - 1) as u64,
-                    'N' => 0,
-                    _ => unreachable!(),
-                })
-                .collect()
-        })
-        .collect();
-
-    encoded_matrix
+    result_encrypted
 }
-
-
-
-
