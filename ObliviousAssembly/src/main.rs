@@ -6,14 +6,16 @@ use revolut::*;
 use std::io::Write;
 use tfhe::core_crypto::prelude::*;
 use tfhe::shortint::parameters::*;
+use rand::Rng;
 
 const DEBUG: bool = false; // true if willing to decrypt the intermediate tape
                            // const COMPARE: bool = true; // true if willing to compare OTM to OMov
 
 pub fn main() {
     for i in 0..1 {
+
         pouf();
-    }
+        }
 }
 
 fn pouf() {
@@ -27,7 +29,7 @@ fn pouf() {
 
     let selector = generate_function_selector(&private_key, &mut ctx);
     let data_access = generate_access(&private_key, &mut ctx);
-    let functions_storage = generate_random_functions_2D(&mut ctx);
+    let functions_storage = generate_random_matrix(&mut ctx);
 
     let start_time_total = Instant::now();
 
@@ -67,97 +69,12 @@ fn move_and_read(tape: &mut LUT, addr: &LWE, public_key: &PublicKey, ctx: &mut C
     content
 }
 
-/// Lift a 2-digit value to its OHE as a vector of LWE
-pub fn blind_tensor_lift_LWE(x: &LWE, y: &LWE, ctx: &Context, public_key: &PublicKey) -> Vec<LWE> {
-    let p = ctx.full_message_modulus() as usize;
-    let mut result = Vec::with_capacity(p * p);
-
-    // Step 1: Trivially encrypt LUT [1, 0, 0, ..., 0]
-    let mut base_lut = LUT::from_vec_trivially(&vec![1], ctx);
-
-    // Step 2: Apply blind rotation on x (negated once)
-    let neg_x = public_key.neg_lwe(x, ctx);
-    public_key.blind_rotation_assign(&neg_x, &mut base_lut, ctx);
-
-    // Step 3: Extract along first dimension and apply blind rotation for y
-    let neg_y = public_key.neg_lwe(y, ctx);
-    for d in 0..p {
-        let intermediate = public_key.lut_extract(&base_lut, d, ctx);
-        let mut y_lut = LUT::from_lwe(&intermediate, public_key, ctx);
-        public_key.blind_rotation_assign(&neg_y, &mut y_lut, ctx);
-
-        for e in 0..p {
-            let final_value = public_key.lut_extract(&y_lut, e, ctx);
-            result.push(final_value);
-        }
-    }
-
-    result
-}
-/// PIR-like construction to access a matrix element blindly.
-/// Homomorphically returns Enc(matrix[x][y]) by summing OHE[i] * data[i].
-/// Cost: 2 Blind Rotations (for generating OHE) + ~p multiplications.
-pub fn blind_matrix_access_clear_1d(
-    public_key: &PublicKey,
-    data: &[u64],
-    ctx: &Context,
-    ohe: &[LWE],
-) -> LWE {
-    assert_eq!(data.len(), ohe.len(), "Data and OHE size mismatch.");
-
-    let mut result = public_key.allocate_and_trivially_encrypt_lwe(0, ctx);
-
-    for (val, lwe) in data.iter().zip(ohe.iter()) {
-        let mut temp = lwe.clone();
-        lwe_ciphertext_cleartext_mul_assign(&mut temp, Cleartext(*val));
-        lwe_ciphertext_add_assign(&mut result, &temp);
-    }
-
-    result
-}
-
-/// PIR-like matrix access using homomorphic operations:
-/// Computes Enc(matrix[x][y]) by weighted summation over one-hot encoded encrypted indices.
-/// Periodic bootstrapping is applied to control noise growth.
-pub fn blind_matrix_access_clear_1d_with_noise_management(
-    public_key: &PublicKey,
-    data: &[u64],
-    ctx: &Context,
-    ohe: &[LWE],
-) -> LWE {
-    assert_eq!(data.len(), ohe.len(), "Data and OHE size mismatch.");
-
-    let mut result = public_key.allocate_and_trivially_encrypt_lwe(0, ctx);
-    let mut count_since_bootstrap = 0;
-    let bootstrap_interval = 32; // Tune as needed based on your parameters
-
-    for (val, lwe) in data.iter().zip(ohe.iter()) {
-        let mut temp = lwe.clone();
-        lwe_ciphertext_cleartext_mul_assign(&mut temp, Cleartext(*val));
-        lwe_ciphertext_add_assign(&mut result, &temp);
-        count_since_bootstrap += 1;
-
-        // Periodically reset noise to prevent overflow
-        if count_since_bootstrap >= bootstrap_interval {
-            public_key.bootstrap_lwe(&mut result, ctx);
-            count_since_bootstrap = 0;
-        }
-    }
-
-    // Final safety bootstrap if needed
-    if count_since_bootstrap > 0 {
-        public_key.bootstrap_lwe(&mut result, ctx);
-    }
-
-    result
-}
-
 pub fn write_new_cell_content_LUT(
     tape: &mut LUT,
-    cell_content: &LweCiphertext<Vec<u64>>,
+    cell_content: &LWE,
     public_key: &PublicKey,
     ctx: &Context,
-    storage: &mut LweCiphertext<Vec<u64>>,
+    storage: &mut LWE,
 ) {
     lwe_ciphertext_sub_assign(&mut storage.to_owned(), cell_content);
     let lut_new_cell_content = LUT::from_lwe(&storage, &public_key, &ctx);
@@ -166,7 +83,7 @@ pub fn write_new_cell_content_LUT(
 
 pub fn change_head_position_LUT(
     tape: &mut LUT,
-    data_access: &LweCiphertext<Vec<u64>>,
+    data_access: &LWE,
     public_key: &PublicKey,
 ) {
     blind_rotate_assign(&data_access, &mut tape.0, &public_key.fourier_bsk);
@@ -176,7 +93,7 @@ pub fn read_cell_content(
     tape: &LUT,
     public_key: &PublicKey,
     ctx: &Context,
-) -> LweCiphertext<Vec<u64>> {
+) -> LWE {
     let mut ct_0 = LweCiphertext::new(
         0,
         ctx.big_lwe_dimension().to_lwe_size(),
@@ -188,90 +105,80 @@ pub fn read_cell_content(
     return cell_content;
 }
 
-fn evaluate_ouf(
-    public_key: &PublicKey,
-    ctx: &Context,
-    input1: &LweCiphertext<Vec<u64>>,
-    input2: &LweCiphertext<Vec<u64>>,
-    selector: &LweCiphertext<Vec<u64>>,
-    function_storage: &Vec<Vec<Vec<u64>>>,
-) -> LweCiphertext<Vec<u64>> {
-    let mut storage = Vec::new();
-
-    for i in function_storage {
-        // let start_time_bma = Instant::now();
-
-        storage.push(public_key.blind_matrix_access_clear(i, &input1, &input2, &ctx));
-        // let elapsed_time_bma = start_time_bma.elapsed();
-        // println!("temps clear BMA :{} ms",elapsed_time_bma.as_millis());
-    }
-
-    // let start_time_packing = Instant::now();
-
-    let result_acc = LUT::from_vec_of_lwe(&storage, &public_key, &ctx);
-    // let elapsed_time_step = start_time_packing.elapsed();
-    // println!("temps packing :{}",elapsed_time_step.as_millis());
-    let result = public_key.blind_array_access(&selector, &result_acc, &ctx);
-    result
-}
 
 fn evaluate_pouf(
     public_key: &PublicKey,
     ctx: &Context,
-    input1: &LweCiphertext<Vec<u64>>,
-    input2: &LweCiphertext<Vec<u64>>,
-    selector: &LweCiphertext<Vec<u64>>,
+    input1: &LWE,
+    input2: &LWE,
+    selector: &Vec<LWE>,
     function_storage: &Vec<Vec<u64>>,
-) -> LweCiphertext<Vec<u64>> {
-    // Step 1: Compute 2D one-hot encoding of (input1, input2)
-    let ohe = blind_tensor_lift_LWE(input1, input2, ctx, public_key);
+) -> LWE {
 
-    // Step 2: PIR-like access for each function row
-    let mut row_results = Vec::with_capacity(function_storage.len());
-    for row in function_storage.iter() {
-        let accessed = blind_matrix_access_clear_1d(public_key, row, ctx, &ohe);
-        row_results.push(accessed);
+    let modulus = ctx.message_modulus().0;
+    // Step 1: Compute 2D one-hot encoding of selector
+
+    let start_time_ohe = Instant::now();
+
+    let mut ohe = blind_tensor_lift_LWE_k(selector, ctx, public_key);
+
+    println!("temps ohe : {} ms", start_time_ohe.elapsed().as_millis());
+
+    ohe.truncate(ctx.polynomial_size().0);
+
+    // Concatenate all inner Vec<u64> into one big Vec<u64>.
+    let mut flat = Vec::with_capacity(ohe.len() * ctx.big_lwe_dimension().to_lwe_size().0);
+    for ct in ohe {
+        let raw: Vec<u64> = ct.into_container();     // take ownership of the inner buffer
+        flat.extend(raw);                          // append (copies)
     }
 
-    // Step 3: Pack the resulting LWE values into a LUT (indexed by selector)
-    let packed_result = LUT::from_vec_of_lwe(&row_results, public_key, ctx);
+    let ohe_list = LweCiphertextList::from_container(flat, ctx.big_lwe_dimension().to_lwe_size(), ctx.ciphertext_modulus());
 
-    // Step 4: Blindly access the correct row result based on selector
-    public_key.blind_array_access(selector, &packed_result, ctx)
+    // Step 2: Pack the ohe in a glwe.
+    let mut ohe_glwe = GlweCiphertext::new(
+        0u64,
+        ctx.glwe_dimension().to_glwe_size(),
+        ctx.polynomial_size(),
+        ctx.ciphertext_modulus(),
+    );
+
+    keyswitch_lwe_ciphertext_list_and_pack_in_glwe_ciphertext(&public_key.packing_ksk, &ohe_list, &mut ohe_glwe);
+
+    println!("temps ohe as glwe: {} ms", start_time_ohe.elapsed().as_millis());
+
+    // Step 3: Get the matrix row (encoding the selected function)
+    let mut function =  mat_vec_mul(function_storage, &ohe_glwe, ctx, public_key);
+    function.truncate((modulus*modulus) as usize);
+
+    // Step 4: Pack the resulting vec of LWE to do a BMA
+    let mut function_BMA = Vec::new() as Vec<LUT>;
+    for i in 0..modulus{
+        let lut = function[((&i*modulus)as usize)..(((&i+1)*modulus)as usize)].to_vec();
+        function_BMA.push(LUT::from_vec_of_lwe(&lut, public_key, ctx));
+    }
+    // Step 5: Compute the BMA and obtain the final result.
+    public_key.blind_matrix_access(&function_BMA, &input1, &input2,&ctx)
 }
 
-fn generate_random_functions(ctx: &mut Context) -> Vec<Vec<Vec<u64>>> {
-    let mut result = Vec::new();
-    for i in 0..ctx.full_message_modulus() as u64 {
-        let mut matrix = Vec::new();
-        for j in 0..ctx.full_message_modulus() as u64 {
-            let mut line = Vec::new();
-            for k in 0..ctx.full_message_modulus() as u64 {
-                line.push(k);
-            }
-            matrix.push(line);
-        }
-        result.push(matrix);
-    }
-    result
-}
+fn generate_random_matrix(ctx: &mut Context) -> Vec<Vec<u64>>{
+    let p = ctx.full_message_modulus();
 
-fn generate_random_functions_2D(ctx: &mut Context) -> Vec<Vec<u64>> {
-    let mut result = Vec::new();
-    for i in 0..ctx.full_message_modulus() as u64 {
-        let mut line = Vec::new();
-        for j in 0..(ctx.full_message_modulus() as u64) * (ctx.full_message_modulus() as u64) {
-            line.push(1);
+    // Define a random matrix of size t*n with elements modulo 16
+    let mut rng = rand::thread_rng();
+    let mut matrix = vec![vec![0; ctx.polynomial_size().0]; ctx.polynomial_size().0];
+    for i in 0..ctx.polynomial_size().0 {
+        for j in 0..ctx.polynomial_size().0 {
+            matrix[i][j] = rng.gen_range(0..p) as u64;
         }
-        result.push(line);
     }
-    result
+    matrix
 }
 
 fn generate_access(
     private_key: &PrivateKey,
     mut ctx: &mut Context,
-) -> Vec<LweCiphertext<Vec<u64>>> {
+) -> Vec<LWE> {
     let mut result = Vec::new();
     for i in 0..1 {
         let mut j = i + 1;
@@ -309,14 +216,180 @@ fn generate_access(
 fn generate_function_selector(
     private_key: &PrivateKey,
     mut ctx: &mut Context,
-) -> Vec<LweCiphertext<Vec<u64>>> {
+) -> Vec<Vec<LWE>> {
     let mut result = Vec::new();
-    result.push(0);
+    ///The function selector cannot exceed the poly size.
+    result.push(vec![0,0,0]);
     let mut result_encrypted = Vec::new();
     for i in result.clone() {
-        result_encrypted.push(private_key.allocate_and_encrypt_lwe(i, &mut ctx));
+        let mut result_i_encrypted = Vec::new();
+        for j in i{
+            result_i_encrypted.push(private_key.allocate_and_encrypt_lwe(j, &mut ctx));
+        }
+        result_encrypted.push(result_i_encrypted)
+
     }
     // print!("selector : {:?}", result.clone());
 
     result_encrypted
 }
+
+/// Lift a 2-digit value to its OHE as a vector of LWE
+pub fn blind_tensor_lift_LWE(x: &LWE, y: &LWE, ctx: &Context, public_key: &PublicKey) -> Vec<LWE> {
+    let p = ctx.full_message_modulus() as usize;
+    let mut result = Vec::with_capacity(p * p);
+
+    // Step 1: Trivially encrypt LUT [1, 0, 0, ..., 0]
+    let mut base_lut = LUT::from_vec_trivially(&vec![1], ctx);
+
+    // Step 2: Apply blind rotation on x (negated once)
+    let neg_x = public_key.neg_lwe(x, ctx);
+    public_key.blind_rotation_assign(&neg_x, &mut base_lut, ctx);
+
+    // Step 3: Extract along first dimension and apply blind rotation for y
+    let neg_y = public_key.neg_lwe(y, ctx);
+    for d in 0..p {
+        let intermediate = public_key.lut_extract(&base_lut, d, ctx);
+        let test = intermediate.lwe_size().0;
+        println!("{test}");
+        // let mut out = LweCiphertext::new(0u64, ctx.small_lwe_dimension().to_lwe_size(), ctx.ciphertext_modulus()); // ctor pattern used across TFHE-rs
+        // keyswitch_lwe_ciphertext(&public_key.lwe_ksk, &intermediate, &mut out);
+        // let test = out.lwe_size().0;
+        // println!("{test}");
+        let mut y_lut = LUT::from_lwe(&intermediate, public_key, ctx);
+        public_key.blind_rotation_assign(&neg_y, &mut y_lut, ctx);
+
+        for e in 0..p {
+            let final_value = public_key.lut_extract(&y_lut, e, ctx);
+            result.push(final_value);
+        }
+    }
+
+    result
+}
+
+/// Recursively lift a k-digit value (values[0..k)) to its OHE as a vector of LWE.
+/// `values`: slice of LWE, one per digit (k digits)
+/// Output length: p^k, where p = ctx.full_message_modulus()
+pub fn blind_tensor_lift_LWE_k(
+    values: &[LWE],
+    ctx: &Context,
+    public_key: &PublicKey,
+) -> Vec<LWE> {
+    assert!(
+        !values.is_empty(),
+        "blind_tensor_lift_LWE_k: need at least one digit"
+    );
+
+    let p = ctx.full_message_modulus() as usize;
+    let k = values.len();
+
+    // Precompute negations once.
+    let neg_values: Vec<LWE> = values
+        .iter()
+        .map(|v| public_key.neg_lwe(v, ctx))
+        .collect();
+
+    // Capacity hint: p^k
+    let cap = p.pow(k as u32);
+    let mut result = Vec::with_capacity(cap);
+
+    // Base LUT: trivially encrypted [1, 0, 0, ...]
+    let mut base_lut = LUT::from_vec_trivially(&vec![1], ctx);
+
+    // First rotation by values[0]
+    public_key.blind_rotation_assign(&neg_values[0], &mut base_lut, ctx);
+
+    // Recurse from the next digit (level = 1)
+    fn recurse(
+        level: usize,
+        current_lut: &LUT,
+        neg_values: &[LWE],
+        p: usize,
+        result: &mut Vec<LWE>,
+        public_key: &PublicKey,
+        ctx: &Context,
+    ) {
+        // If we've already rotated by all digits, do the final extraction over the last axis.
+        if level == neg_values.len() {
+            for idx in 0..p {
+                let ct = public_key.lut_extract(current_lut, idx, ctx);
+                result.push(ct);
+            }
+            return;
+        }
+
+        // Otherwise: extract along this axis, lift to a LUT, rotate by the current digit, and go deeper.
+        let neg = &neg_values[level];
+        for idx in 0..p {
+
+            let extracted_ct = public_key.lut_extract(current_lut, idx, ctx);
+            let mut next_lut = LUT::from_lwe(&extracted_ct, public_key, ctx); // error here
+            public_key.blind_rotation_assign(neg, &mut next_lut, ctx);
+            recurse(level + 1, &next_lut, neg_values, p, result, public_key, ctx);
+        }
+    }
+
+    recurse(1, &base_lut, &neg_values, p, &mut result, public_key, ctx);
+    result
+}
+
+pub fn mat_vec_mul(
+    matrix: &Vec<Vec<u64>>,
+    ct_vec: &GLWE,
+    ctx: &Context,
+    public_key: &PublicKey,
+) -> Vec<LWE> {
+    let mut result = vec![];
+    // Encode the rows of the matrix as polynomials
+    let encoded_matrix = encode_matrix(matrix, ctx);
+
+    // absorption rows x glwe
+    for row in encoded_matrix {
+        let r = public_key.glwe_absorption_polynomial_with_fft(ct_vec, &row);
+
+        result.push(public_key.glwe_extract(&r, 0, ctx));
+    }
+    result
+
+}
+
+/// Encode a row
+pub fn encode_row(row: &Vec<u64>, ctx: &Context) -> Poly {
+    let n = ctx.polynomial_size().0;
+    let p = ctx.full_message_modulus() as u64;
+
+    // resize row to n with 0s if needed
+    let mut new_row = row.clone();
+    if row.len() < n {
+        new_row.extend(vec![0; n - row.len()]);
+    }
+    // encode row
+    let first = new_row[0];
+    new_row[1..].reverse();
+    for x in &mut new_row[1..] {
+        *x = x.wrapping_neg() % p;
+    }
+    new_row[0] = first;
+    Poly::from_container(new_row)
+}
+
+/// Encode a small matrix where each row is a polynomial
+#[allow(dead_code)]
+pub fn encode_matrix(matrix: &Vec<Vec<u64>>, ctx: &Context) -> Vec<Poly> {
+    let mut result: Vec<Poly> = vec![];
+
+    for row in matrix {
+        result.push(encode_row(row, ctx));
+    }
+    result
+}
+
+
+
+
+
+
+
+
+
