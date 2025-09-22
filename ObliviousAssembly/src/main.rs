@@ -13,9 +13,32 @@ const DEBUG: bool = false; // true if willing to decrypt the intermediate tape
 
 pub fn main() {
     for i in 0..1 {
+        // pouf();
+        pouf_glwe();
+        // let param = PARAM_MESSAGE_4_CARRY_0;
+        // let mut ctx = Context::from(param);
+        // let private_key = key(ctx.parameters());
+        // let public_key = private_key.get_public_key();
+        //
+        // let mut glwe = GlweCiphertext::new(
+        //     0u64,
+        //     ctx.glwe_dimension().to_glwe_size(),
+        //     ctx.polynomial_size(),
+        //     ctx.ciphertext_modulus(),
+        // );
+        // let mut glwe2 = GlweCiphertext::new(
+        //     0u64,
+        //     ctx.glwe_dimension().to_glwe_size(),
+        //     ctx.polynomial_size(),
+        //     ctx.ciphertext_modulus(),
+        // );
+        // let start_time_total = Instant::now();
+        // glwe_ciphertext_monomial_mul_assign(&mut glwe2, MonomialDegree(2));
+        // public_key.glwe_sum_assign(&mut glwe,&glwe2);
+        // println!("temps GLWE rotate and sum: {} ms", start_time_total.elapsed().as_millis());
 
-        pouf();
-        }
+
+    }
 }
 
 fn pouf() {
@@ -60,7 +83,7 @@ fn pouf() {
     }
 
     println!("temps Step : {} ms", start_time_total.elapsed().as_millis());
-    tape.print(&private_key, &ctx);
+    // tape.print(&private_key, &ctx);
 }
 
 fn move_and_read(tape: &mut LUT, addr: &LWE, public_key: &PublicKey, ctx: &mut Context) -> LWE {
@@ -127,6 +150,7 @@ fn evaluate_pouf(
     ohe.truncate(ctx.polynomial_size().0);
 
     // Concatenate all inner Vec<u64> into one big Vec<u64>.
+
     let mut flat = Vec::with_capacity(ohe.len() * ctx.big_lwe_dimension().to_lwe_size().0);
     for ct in ohe {
         let raw: Vec<u64> = ct.into_container();     // take ownership of the inner buffer
@@ -250,12 +274,6 @@ pub fn blind_tensor_lift_LWE(x: &LWE, y: &LWE, ctx: &Context, public_key: &Publi
     let neg_y = public_key.neg_lwe(y, ctx);
     for d in 0..p {
         let intermediate = public_key.lut_extract(&base_lut, d, ctx);
-        let test = intermediate.lwe_size().0;
-        println!("{test}");
-        // let mut out = LweCiphertext::new(0u64, ctx.small_lwe_dimension().to_lwe_size(), ctx.ciphertext_modulus()); // ctor pattern used across TFHE-rs
-        // keyswitch_lwe_ciphertext(&public_key.lwe_ksk, &intermediate, &mut out);
-        // let test = out.lwe_size().0;
-        // println!("{test}");
         let mut y_lut = LUT::from_lwe(&intermediate, public_key, ctx);
         public_key.blind_rotation_assign(&neg_y, &mut y_lut, ctx);
 
@@ -384,6 +402,115 @@ pub fn encode_matrix(matrix: &Vec<Vec<u64>>, ctx: &Context) -> Vec<Poly> {
     }
     result
 }
+
+
+///pouf if the client send one hot encoding to access functions :
+fn pouf_glwe() {
+    let param = PARAM_MESSAGE_4_CARRY_0;
+    let mut ctx = Context::from(param);
+    let private_key = key(ctx.parameters());
+    let public_key = private_key.get_public_key();
+
+    let mut tape_vec = vec![0; ctx.message_modulus().0];
+    let mut tape = LUT::from_vec(&tape_vec, &private_key, &mut ctx);
+
+    let selector = generate_function_selector_glwe(&private_key, &mut ctx);
+    let data_access = generate_access(&private_key, &mut ctx);
+    let functions_storage = generate_random_matrix(&mut ctx);
+
+    let start_time_total = Instant::now();
+
+    for step in 0..selector.len() {
+        println!("step {}", step);
+        let (addr1, addr2, addr3) = (
+            &data_access[3 * step],
+            &data_access[3 * step + 1],
+            &data_access[3 * step + 2],
+        );
+
+        let input1 = move_and_read(&mut tape, addr1, public_key, &mut ctx);
+        let input2 = move_and_read(&mut tape, addr2, public_key, &mut ctx);
+        let cell_content = move_and_read(&mut tape, addr3, public_key, &mut ctx);
+
+        let start_time_eval = Instant::now();
+        let mut result = evaluate_pouf_glwe(
+            public_key,
+            &ctx,
+            &input1,
+            &input2,
+            &selector[step],
+            &functions_storage,
+        );
+        println!("temps PIR : {} ms", start_time_eval.elapsed().as_millis());
+
+        write_new_cell_content_LUT(&mut tape, &cell_content, public_key, &ctx, &mut result);
+    }
+
+    println!("temps Step : {} ms", start_time_total.elapsed().as_millis());
+    tape.print(&private_key, &ctx);
+}
+
+fn evaluate_pouf_glwe(
+    public_key: &PublicKey,
+    ctx: &Context,
+    input1: &LWE,
+    input2: &LWE,
+    selector: &GLWE,
+    function_storage: &Vec<Vec<u64>>,
+) -> LWE {
+
+    let modulus = ctx.message_modulus().0;
+
+    // let start_time_ohe = Instant::now();
+    //println!("temps ohe as glwe: {} ms", start_time_ohe.elapsed().as_millis());
+
+    // Step 1: Get the matrix row (encoding the selected function)
+    let start_time_test = Instant::now();
+    let mut function =  mat_vec_mul(function_storage, &selector, ctx, public_key);
+    function.truncate((modulus*modulus) as usize);
+    println!("temps mat_vec_mul: {} ms", start_time_test.elapsed().as_millis());
+
+    // Step 2: Pack the resulting vec of LWE to do a BMA
+    let start_time_test = Instant::now();
+    let mut function_BMA = Vec::new() as Vec<LUT>;
+    for i in 0..modulus{
+        let lut = function[((&i*modulus)as usize)..(((&i+1)*modulus)as usize)].to_vec();
+        function_BMA.push(LUT::from_vec_of_lwe(&lut, public_key, ctx));
+    }
+    println!("temps creation matrice pour BMA: {} ms", start_time_test.elapsed().as_millis());
+
+    // Step 3: Compute the BMA and obtain the final result.
+    let start_time_test = Instant::now();
+    let result = public_key.blind_matrix_access(&function_BMA, &input1, &input2,&ctx);
+    println!("temps BMA: {} ms", start_time_test.elapsed().as_millis());
+    result
+}
+
+fn generate_function_selector_glwe(
+    private_key: &PrivateKey,
+    mut ctx: &mut Context,
+) -> Vec<GLWE> {
+    let mut result = Vec::new();
+    let mut rng = rand::thread_rng();
+
+    ///The function selector cannot exceed the poly size.
+    result.push(rng.gen_range(0..ctx.polynomial_size().0) as u64);
+    let mut result_encrypted = Vec::new();
+
+    for i in result.clone() {
+        let mut v = vec![0 as u64; ctx.polynomial_size().0];
+        v[i as usize] = 1;
+        result_encrypted.push(private_key.allocate_and_encrypt_glwe_from_vec(&v,&mut ctx));
+
+    }
+    // print!("selector : {:?}", result.clone());
+
+    result_encrypted
+}
+
+
+
+
 
 
 
